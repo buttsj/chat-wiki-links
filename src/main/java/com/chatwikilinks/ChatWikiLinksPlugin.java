@@ -502,6 +502,12 @@ public class ChatWikiLinksPlugin extends Plugin {
             return;
         }
 
+        // Ignore this if the keybind is set but users haven't pressed the key
+        if (isKeybindConfigured() && !isKeybindPressed)
+        {
+            return;
+        }
+
         Widget[] dynamicChildren = chatboxMessage.getDynamicChildren();
         if (dynamicChildren == null)
         {
