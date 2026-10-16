@@ -399,7 +399,7 @@ public class ChatWikiLinksPlugin extends Plugin {
         List<String> matchedKeywords = new ArrayList<>();
 
         // Identify which active keywords are present in this message
-        for (String lowerItem : sortedActiveKeywords)
+         for (String lowerItem : sortedActiveKeywords)
         {
             int idx = lowerClean.indexOf(lowerItem);
             if (idx != -1)
@@ -423,11 +423,15 @@ public class ChatWikiLinksPlugin extends Plugin {
 
         // Perform targeted replacements directly on workingMessage so inline tags (like <col=ff0000>313</col>) remain intact!
         String result = workingMessage;
+
         for (String kw : matchedKeywords)
         {
             // Case-insensitive replacement that preserves original keyword casing and all surrounding tags
             String regex = "(?i)\\b(" + java.util.regex.Pattern.quote(kw) + ")\\b";
             result = result.replaceAll(regex, "<col=0000ff><u>$1</u></col>");
+
+            // break after finding one match because it will be the best match
+            break;
         }
 
         return result;
@@ -466,93 +470,116 @@ public class ChatWikiLinksPlugin extends Plugin {
     public void onMenuEntryAdded(MenuEntryAdded event)
     {
         Widget chatboxMessage = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
+        MenuEntry menuEntry = event.getMenuEntry();
 
         if (chatboxMessage == null || chatboxMessage.isHidden())
         {
             return;
         }
 
-        // Ignore this if the keybind is set but users haven't pressed the key
-        if (isKeybindConfigured() && !isKeybindPressed)
+        // This plug-in relies on an empty menuentry (aka hovering over nothing)
+        if (menuEntry.getTarget().isEmpty())
         {
-            return;
-        }
-
-        Widget[] dynamicChildren = chatboxMessage.getDynamicChildren();
-        if (dynamicChildren == null)
-        {
-            return;
-        }
-
-        // Because some game text is formatted in the chat differently (see: Herb sack vs Gem sack) we need to adjust our menu entry to account for line breaks.
-        // We also use some static sizes for line height, character width and padding.
-        int mouseX = client.getMouseCanvasPosition().getX();
-        int mouseY = client.getMouseCanvasPosition().getY();
-
-
-        for (Widget child : dynamicChildren)
-        {
-            if (child != null)
+            // First ignore this if the keybind is set but users haven't pressed the key
+            if (isKeybindConfigured() && !isKeybindPressed)
             {
-                String rawText = child.getText();
-                if (rawText == null || rawText.isEmpty())
+                return;
+            }
+
+            // Now let's verify the mouse is even hovering over the chatbox
+            Point mouse = client.getMouseCanvasPosition();
+
+            if (mouse == null)
+            {
+                return;
+            }
+
+            // X and Y coordinates of the mouse position
+            int mouseX = mouse.getX();
+            int mouseY = mouse.getY();
+
+            // Check if the mouse is within the chatbox
+            Rectangle chatBounds = chatboxMessage.getBounds();
+
+            if (chatBounds == null || !chatBounds.contains(mouseX, mouseY))
+            {
+                return;
+            }
+
+            // This is an array of all possible chat messages
+            Widget[] dynamicChildren = chatboxMessage.getDynamicChildren();
+            if (dynamicChildren == null)
+            {
+                return;
+            }
+
+            // Because some game text is formatted in the chat differently (see: Herb sack vs Gem sack) we need to adjust our menu entry to account for line breaks.
+            // We also use some static sizes for line height, character width and padding.
+            for (Widget child : dynamicChildren)
+            {
+                if (child != null)
                 {
-                    continue;
-                }
-
-                int startX = child.getCanvasLocation().getX();
-                int startY = child.getCanvasLocation().getY();
-
-                // Split the widget text by <br> or <br/> to handle multi-line messages correctly
-                String[] lines = rawText.split("<br/?>");
-
-                for (int lineIndex = 0; lineIndex < lines.length; lineIndex++)
-                {
-                    int lineStartY = startY + (lineIndex * CHAT_LINE_HEIGHT);
-                    int lineEndY = lineStartY + CHAT_LINE_HEIGHT;
-
-                    if (mouseY >= lineStartY && mouseY <= lineEndY)
+                    String rawText = child.getText();
+                    if (rawText == null || rawText.isEmpty())
                     {
-                        String lineRaw = lines[lineIndex];
-                        String cleanLine = Text.removeTags(lineRaw).replace('\u00A0', ' ');
-                        if (cleanLine.isEmpty())
-                        {
-                            continue;
-                        }
+                        continue;
+                    }
 
-                        String lowerLine = cleanLine.toLowerCase();
+                    // Get the starting X and Y coordinates of the chat message
+                    int startX = child.getCanvasLocation().getX();
+                    int startY = child.getCanvasLocation().getY();
 
-                        for (String lowerItem : sortedActiveKeywords)
+                    // Split the widget text by <br> or <br/> to handle multi-line messages correctly
+                    String[] lines = rawText.split("<br/?>");
+
+                    for (int lineIndex = 0; lineIndex < lines.length; lineIndex++)
+                    {
+                        int lineStartY = startY + (lineIndex * CHAT_LINE_HEIGHT);
+                        int lineEndY = lineStartY + CHAT_LINE_HEIGHT;
+
+                        if (mouseY >= lineStartY && mouseY <= lineEndY)
                         {
-                            int idx = 0;
-                            while ((idx = lowerLine.indexOf(lowerItem, idx)) != -1)
+                            String lineRaw = lines[lineIndex];
+                            String cleanLine = Text.removeTags(lineRaw).replace('\u00A0', ' ');
+                            if (cleanLine.isEmpty())
                             {
-                                int endIdx = idx + lowerItem.length();
+                                continue;
+                            }
 
-                                boolean validStart = (idx == 0 || !Character.isLetterOrDigit(cleanLine.charAt(idx - 1)));
-                                boolean validEnd = (endIdx == cleanLine.length() || !Character.isLetterOrDigit(cleanLine.charAt(endIdx)));
+                            String lowerLine = cleanLine.toLowerCase();
 
-                                if (validStart && validEnd)
+                            for (String lowerItem : sortedActiveKeywords)
+                            {
+                                int idx = 0;
+                                while ((idx = lowerLine.indexOf(lowerItem, idx)) != -1)
                                 {
-                                    int itemStartX = startX + (idx * DEFAULT_CHAR_WIDTH);
-                                    int itemEndX = startX + (endIdx * DEFAULT_CHAR_WIDTH);
+                                    int endIdx = idx + lowerItem.length();
 
-                                    if (mouseX >= itemStartX - HOVER_PADDING_PIXELS && mouseX <= itemEndX + HOVER_PADDING_PIXELS)
+                                    boolean validStart = (idx == 0 || !Character.isLetterOrDigit(cleanLine.charAt(idx - 1)));
+                                    boolean validEnd = (endIdx == cleanLine.length() || !Character.isLetterOrDigit(cleanLine.charAt(endIdx)));
+
+                                    if (validStart && validEnd)
                                     {
-                                        String canonicalName = getCanonicalName(lowerItem);
-                                        if (canonicalName != null && !canonicalName.isEmpty())
+                                        int itemStartX = startX + (idx * DEFAULT_CHAR_WIDTH);
+                                        int itemEndX = startX + (endIdx * DEFAULT_CHAR_WIDTH);
+
+                                        if (mouseX >= itemStartX - HOVER_PADDING_PIXELS && mouseX <= itemEndX + HOVER_PADDING_PIXELS)
                                         {
-                                            String capitalizedName = canonicalName.substring(0, 1).toUpperCase() + canonicalName.substring(1);
-                                            client.createMenuEntry(-1)
-                                                    .setTarget("<col=ff9040>" + capitalizedName + "</col>")
-                                                    .setOption(MENUOP_WIKI)
-                                                    .setType(MenuAction.RUNELITE)
-                                                    .onClick(e -> openWiki(canonicalName));
-                                            return;
+                                            String canonicalName = getCanonicalName(lowerItem);
+                                            if (canonicalName != null && !canonicalName.isEmpty())
+                                            {
+                                                String capitalizedName = canonicalName.substring(0, 1).toUpperCase() + canonicalName.substring(1);
+                                                client.createMenuEntry(-1)
+                                                        .setTarget("<col=ff9040>" + capitalizedName + "</col>")
+                                                        .setOption(MENUOP_WIKI)
+                                                        .setType(MenuAction.RUNELITE)
+                                                        .onClick(e -> openWiki(canonicalName));
+                                                return;
+                                            }
                                         }
                                     }
+                                    idx++;
                                 }
-                                idx++;
                             }
                         }
                     }
