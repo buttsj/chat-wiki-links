@@ -25,6 +25,7 @@
 package com.chatwikilinks;
 
 import com.google.inject.Provides;
+import java.awt.Rectangle;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -38,6 +39,8 @@ import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.MenuAction;
+import net.runelite.api.Point;
+import net.runelite.api.MenuEntry;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.MenuEntryAdded;
