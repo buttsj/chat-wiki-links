@@ -42,7 +42,7 @@ import net.runelite.api.MenuAction;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.MenuEntryAdded;
-import net.runelite.api.widgets.ComponentID;
+import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
@@ -367,10 +367,16 @@ public class ChatWikiLinksPlugin extends Plugin {
             }
             else
             {
-                String reverted = currentText.replace("<col=0000ff><u>", "").replace("</u></col>", "");
-                messageNode.setValue(reverted);
+                // Only set the value if the text actually contains the tags you added
+                if (currentText.contains("<col=0000ff><u>"))
+                {
+                    String reverted = currentText.replace("<col=0000ff><u>", "").replace("</u></col>", "");
+                    messageNode.setValue(reverted);
+                }
             }
         }
+
+        client.refreshChat();
     }
 
     private String processMessageText(String inputMessage)
@@ -380,76 +386,52 @@ public class ChatWikiLinksPlugin extends Plugin {
             return inputMessage;
         }
 
-        // Preserve line breaks (<br>) before stripping other formatting tags
-        // if we don't this breaks the built-in formatting of things like the gem sack
-        String rawMessage = inputMessage.replace('\u00A0', ' ');
-        String messageWithBreaks = rawMessage.replace("<br>", "\n").replace("<br/>", "\n");
-        String cleanMessage = Text.removeTags(messageWithBreaks);
+        // Preserve original breaks and formatting
+        String workingMessage = inputMessage.replace('\u00A0', ' ');
 
-        if (cleanMessage == null || cleanMessage.isEmpty())
+        // Use clean text ONLY to locate word match positions/boundaries
+        String cleanText = Text.removeTags(workingMessage.replace("<br>", "\n").replace("<br/>", "\n"));
+        if (cleanText.isEmpty())
         {
             return inputMessage;
         }
 
-        String lowerClean = cleanMessage.toLowerCase();
-        boolean[] claimed = new boolean[cleanMessage.length()];
-        List<MatchRange> matches = new ArrayList<>();
+        String lowerClean = cleanText.toLowerCase();
+        List<String> matchedKeywords = new ArrayList<>();
 
+        // Identify which active keywords are present in this message
         for (String lowerItem : sortedActiveKeywords)
         {
-            int idx = 0;
-            while ((idx = lowerClean.indexOf(lowerItem, idx)) != -1)
+            int idx = lowerClean.indexOf(lowerItem);
+            if (idx != -1)
             {
+                // Verify word boundaries
                 int endIdx = idx + lowerItem.length();
-
-                boolean validStart = (idx == 0 || !Character.isLetterOrDigit(cleanMessage.charAt(idx - 1)));
-                boolean validEnd = (endIdx == cleanMessage.length() || !Character.isLetterOrDigit(cleanMessage.charAt(endIdx)));
+                boolean validStart = (idx == 0 || !Character.isLetterOrDigit(cleanText.charAt(idx - 1)));
+                boolean validEnd = (endIdx == cleanText.length() || !Character.isLetterOrDigit(cleanText.charAt(endIdx)));
 
                 if (validStart && validEnd)
                 {
-                    boolean overlap = false;
-                    for (int i = idx; i < endIdx; i++)
-                    {
-                        if (claimed[i])
-                        {
-                            overlap = true;
-                            break;
-                        }
-                    }
-
-                    if (!overlap)
-                    {
-                        for (int i = idx; i < endIdx; i++)
-                        {
-                            claimed[i] = true;
-                        }
-                        matches.add(new MatchRange(idx, endIdx));
-                    }
+                    matchedKeywords.add(lowerItem);
                 }
-                idx++;
             }
         }
 
-        if (matches.isEmpty())
+        if (matchedKeywords.isEmpty())
         {
             return inputMessage;
         }
 
-        matches.sort(Comparator.comparingInt(m -> m.start));
-
-        StringBuilder sb = new StringBuilder();
-        int lastIdx = 0;
-        for (MatchRange m : matches)
+        // Perform targeted replacements directly on workingMessage so inline tags (like <col=ff0000>313</col>) remain intact!
+        String result = workingMessage;
+        for (String kw : matchedKeywords)
         {
-            sb.append(cleanMessage, lastIdx, m.start);
-            String matchedText = cleanMessage.substring(m.start, m.end);
-            sb.append("<col=0000ff><u>").append(matchedText).append("</u></col>");
-            lastIdx = m.end;
+            // Case-insensitive replacement that preserves original keyword casing and all surrounding tags
+            String regex = "(?i)\\b(" + java.util.regex.Pattern.quote(kw) + ")\\b";
+            result = result.replaceAll(regex, "<col=0000ff><u>$1</u></col>");
         }
-        sb.append(cleanMessage.substring(lastIdx));
 
-        // Now convert newlines back to <br> tags for OSRS chat rendering
-        return sb.toString().replace("\n", "<br>");
+        return result;
     }
 
     @Subscribe
@@ -496,7 +478,8 @@ public class ChatWikiLinksPlugin extends Plugin {
     @Subscribe
     public void onMenuEntryAdded(MenuEntryAdded event)
     {
-        Widget chatboxMessage = client.getWidget(ComponentID.CHATBOX_MESSAGE_LINES);
+        Widget chatboxMessage = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
+        
         if (chatboxMessage == null || chatboxMessage.isHidden())
         {
             return;
