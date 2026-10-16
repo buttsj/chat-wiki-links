@@ -32,7 +32,6 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.List;
 import java.util.ArrayList;
-import java.util.Comparator;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
@@ -463,23 +462,11 @@ public class ChatWikiLinksPlugin extends Plugin {
         }
     }
 
-    private static class MatchRange
-    {
-        int start;
-        int end;
-
-        MatchRange(int start, int end)
-        {
-            this.start = start;
-            this.end = end;
-        }
-    }
-
     @Subscribe
     public void onMenuEntryAdded(MenuEntryAdded event)
     {
         Widget chatboxMessage = client.getWidget(InterfaceID.Chatbox.SCROLLAREA);
-        
+
         if (chatboxMessage == null || chatboxMessage.isHidden())
         {
             return;
@@ -517,7 +504,7 @@ public class ChatWikiLinksPlugin extends Plugin {
                 int startY = child.getCanvasLocation().getY();
 
                 // Split the widget text by <br> or <br/> to handle multi-line messages correctly
-                String[] lines = rawText.split("<br\\/?>");
+                String[] lines = rawText.split("<br/?>");
 
                 for (int lineIndex = 0; lineIndex < lines.length; lineIndex++)
                 {
