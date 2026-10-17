@@ -33,6 +33,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.regex.Pattern;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
@@ -402,7 +403,7 @@ public class ChatWikiLinksPlugin extends Plugin {
         List<String> matchedKeywords = new ArrayList<>();
 
         // Identify which active keywords are present in this message
-         for (String lowerItem : sortedActiveKeywords)
+        for (String lowerItem : sortedActiveKeywords)
         {
             int idx = lowerClean.indexOf(lowerItem);
             if (idx != -1)
@@ -430,11 +431,8 @@ public class ChatWikiLinksPlugin extends Plugin {
         for (String kw : matchedKeywords)
         {
             // Case-insensitive replacement that preserves original keyword casing and all surrounding tags
-            String regex = "(?i)\\b(" + java.util.regex.Pattern.quote(kw) + ")\\b";
+            String regex = "(?i)\\b(" + Pattern.quote(kw) + ")\\b";
             result = result.replaceAll(regex, "<col=0000ff><u>$1</u></col>");
-
-            // break after finding one match because it will be the best match
-            break;
         }
 
         return result;
@@ -448,8 +446,13 @@ public class ChatWikiLinksPlugin extends Plugin {
             return;
         }
 
+        // Add more message types to allow hyperlink formatting
         ChatMessageType chatMessageType = chatMessage.getType();
-        if (chatMessageType != ChatMessageType.GAMEMESSAGE && chatMessageType != ChatMessageType.SPAM)
+        if (chatMessageType != ChatMessageType.GAMEMESSAGE
+                && chatMessageType != ChatMessageType.SPAM
+                && chatMessageType != ChatMessageType.OBJECT_EXAMINE
+                && chatMessageType != ChatMessageType.NPC_EXAMINE
+                && chatMessageType != ChatMessageType.ITEM_EXAMINE)
         {
             return;
         }
