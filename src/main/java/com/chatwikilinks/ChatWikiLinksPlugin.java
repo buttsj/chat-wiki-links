@@ -34,10 +34,13 @@ import java.util.TreeSet;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.ChatMessageType;
+import net.runelite.api.MessageNode;
 import net.runelite.api.Client;
+import net.runelite.api.NPCComposition;
 import net.runelite.api.GameState;
 import net.runelite.api.MenuAction;
 import net.runelite.api.Point;
@@ -79,6 +82,9 @@ public class ChatWikiLinksPlugin extends Plugin {
     private static final int HOVER_PADDING_PIXELS = 2;
     private static final int CHAT_LINE_HEIGHT = 15;
 
+    private static final Pattern MASK_PATTERN = Pattern.compile("<col=0000ff><u>(.*?)</u></col>", Pattern.CASE_INSENSITIVE);
+    private static final Pattern REVERSE_PATTERN = Pattern.compile("TEMP(\\d+)");
+
     @Inject
     private ChatWikiLinksConfig config;
 
@@ -111,6 +117,7 @@ public class ChatWikiLinksPlugin extends Plugin {
 
     // Store the game items which should be linkable
     private final Map<String, String> baseItemCache = new HashMap<>();
+    private final Map<String, String> baseNpcCache = new HashMap<>();
     // Additional list of words that the user specified to hyperlink
     private final Map<String, String> allowlistItems = new HashMap<>();
     // Additional list of words that the user blocked from hyperlinks
@@ -148,9 +155,21 @@ public class ChatWikiLinksPlugin extends Plugin {
         {
             if (client.getGameState() != null && client.getGameState().getState() >= GameState.LOGGED_IN.getState())
             {
+                boolean refreshActiveKeywords = false;
                 if (baseItemCache.isEmpty())
                 {
                     buildBaseItemCache();
+                    refreshActiveKeywords = true;
+                }
+
+                if (baseNpcCache.isEmpty())
+                {
+                    buildBaseNpcCache();
+                    refreshActiveKeywords = true;
+                }
+
+                if (refreshActiveKeywords)
+                {
                     updateActiveKeywords();
                 }
             }
@@ -162,6 +181,7 @@ public class ChatWikiLinksPlugin extends Plugin {
     {
         keyManager.unregisterKeyListener(hotkeyListener);
         baseItemCache.clear();
+        baseNpcCache.clear();
         allowlistItems.clear();
         blocklistKeywords.clear();
         sortedActiveKeywords.clear();
@@ -174,6 +194,7 @@ public class ChatWikiLinksPlugin extends Plugin {
         if (gameStateChanged.getGameState() == GameState.LOGGED_IN && baseItemCache.isEmpty())
         {
             buildBaseItemCache();
+            buildBaseNpcCache();
             updateActiveKeywords();
         }
     }
@@ -185,8 +206,59 @@ public class ChatWikiLinksPlugin extends Plugin {
         {
             clientThread.invoke(() -> {
                 updateActiveKeywords();
+                toggleChatLinks(true);
                 client.refreshChat();
             });
+        }
+    }
+
+    private void buildBaseNpcCache()
+    {
+        baseNpcCache.clear();
+
+        int maxNpcId = 15000;
+
+        for (int npcId = 0; npcId < maxNpcId; npcId++)
+        {
+            NPCComposition composition = client.getNpcDefinition(npcId);
+            if (composition == null)
+            {
+                continue;
+            }
+
+            String name = composition.getName();
+            if (name == null || name.isEmpty() || name.equalsIgnoreCase("null"))
+            {
+                continue;
+            }
+
+            // Filter out dummy/null NPCs or instances without actions or combat levels if needed
+            String[] actions = composition.getActions();
+            boolean hasActions = false;
+            if (actions != null)
+            {
+                for (String action : actions)
+                {
+                    if (action != null && !action.isEmpty())
+                    {
+                        hasActions = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!hasActions && composition.getCombatLevel() <= 0)
+            {
+                continue;
+            }
+
+            String cleanName = name.replace('\u00A0', ' ').trim();
+            String lowerName = cleanName.toLowerCase();
+
+            if (!baseNpcCache.containsKey(lowerName))
+            {
+                baseNpcCache.put(lowerName, cleanName);
+            }
         }
     }
 
@@ -296,22 +368,38 @@ public class ChatWikiLinksPlugin extends Plugin {
             }
         }
 
-        // Default words to hyperlink, but skip if they are an above blocked word
-        for (Map.Entry<String, String> entry : baseItemCache.entrySet())
+        // Items to hyperlink, but skip if the config is disabled or are an above blocked word
+        if (config.includeItems())
         {
-            String lowerName = entry.getKey();
-            if (!blocklistKeywords.contains(lowerName))
+            for (Map.Entry<String, String> entry : baseItemCache.entrySet())
             {
-                sortedActiveKeywords.add(lowerName);
+                String lowerName = entry.getKey();
+                if (!blocklistKeywords.contains(lowerName))
+                {
+                    sortedActiveKeywords.add(lowerName);
 
-                // Include the plural version of the words because they count
-                String pluralWord = getPluralForm(lowerName);
-                allowlistItems.put(pluralWord, lowerName);
-                sortedActiveKeywords.add(pluralWord);
+                    // Include the plural version of the words because they count
+                    String pluralWord = getPluralForm(lowerName);
+                    allowlistItems.put(pluralWord, lowerName);
+                    sortedActiveKeywords.add(pluralWord);
+                }
             }
         }
 
-        // Additional words the user specified to hyperlink
+        if (config.includeNPC())
+        {
+            // NPCs to hyperlink, but skip if the config is disabled or are an above blocked word
+            for (Map.Entry<String, String> entry : baseNpcCache.entrySet())
+            {
+                String lowerName = entry.getKey();
+                if (!blocklistKeywords.contains(lowerName))
+                {
+                    sortedActiveKeywords.add(lowerName);
+                }
+            }
+        }
+
+        // Fianlly include additional words the user specified to hyperlink
         String rawAllowlist = config.allowlist();
         if (rawAllowlist != null && !rawAllowlist.trim().isEmpty())
         {
@@ -330,12 +418,23 @@ public class ChatWikiLinksPlugin extends Plugin {
 
     private String getCanonicalName(String lowerKeyword)
     {
-        // helper method to pull words if they exist in our caches (base items and allowed items)
+        String ret = "";
+
+        // helper method to pull words if they exist in our caches (base items, npcs, and allowed items)
         if (allowlistItems.containsKey(lowerKeyword))
         {
-            return allowlistItems.get(lowerKeyword);
+            ret = allowlistItems.get(lowerKeyword);
         }
-        return baseItemCache.get(lowerKeyword);
+        else if (baseItemCache.containsKey(lowerKeyword))
+        {
+            ret = baseItemCache.get(lowerKeyword);
+        }
+        else if (baseNpcCache.containsKey(lowerKeyword))
+        {
+            ret = baseNpcCache.get(lowerKeyword);
+        }
+
+        return ret;
     }
 
     private boolean isKeybindConfigured()
@@ -347,15 +446,25 @@ public class ChatWikiLinksPlugin extends Plugin {
     private void toggleChatLinks(boolean enable)
     {
         // Loop over all messages in the game chat and process them with hyperlinks or undo the hyperlinks
-        for (net.runelite.api.MessageNode messageNode : client.getMessages())
+        for (MessageNode messageNode : client.getMessages())
         {
             if (messageNode == null)
             {
                 continue;
             }
 
+            ChatMessageType chatMessageType = messageNode.getType();
+            if (chatMessageType != ChatMessageType.GAMEMESSAGE
+                    && chatMessageType != ChatMessageType.SPAM
+                    && chatMessageType != ChatMessageType.OBJECT_EXAMINE
+                    && chatMessageType != ChatMessageType.NPC_EXAMINE
+                    && chatMessageType != ChatMessageType.ITEM_EXAMINE)
+            {
+                return;
+            }
+
             String currentText = messageNode.getValue();
-            if (currentText == null)
+            if (currentText == null || currentText.isEmpty())
             {
                 continue;
             }
@@ -405,6 +514,11 @@ public class ChatWikiLinksPlugin extends Plugin {
         // Identify which active keywords are present in this message
         for (String lowerItem : sortedActiveKeywords)
         {
+            if (lowerItem.length() > lowerClean.length())
+            {
+                continue;
+            }
+
             int idx = lowerClean.indexOf(lowerItem);
             if (idx != -1)
             {
@@ -430,9 +544,44 @@ public class ChatWikiLinksPlugin extends Plugin {
 
         for (String kw : matchedKeywords)
         {
+            // Mask the working message to prevent subwords screwing things up ("Grimy dwarf weed" -> "dwarf")
+            Matcher matcher = MASK_PATTERN.matcher(result);
+            int counter = 1;
+            StringBuilder sb = new StringBuilder();
+            List<String> extractedValues = new ArrayList<>();
+
+            // Mask existing matches in this game chat to avoid dupe tags
+            while (matcher.find())
+            {
+                String extractedWord = matcher.group();
+                extractedValues.add(extractedWord);
+                matcher.appendReplacement(sb, "TEMP" + counter);
+                counter++;
+            }
+            matcher.appendTail(sb);
+
+            result = sb.toString();
+
             // Case-insensitive replacement that preserves original keyword casing and all surrounding tags
             String regex = "(?i)\\b(" + Pattern.quote(kw) + ")\\b";
             result = result.replaceAll(regex, "<col=0000ff><u>$1</u></col>");
+
+            // We masked some words if counter is greater than 1, let's now replace them back
+            if (counter > 1)
+            {
+                Matcher reverseMatcher = REVERSE_PATTERN.matcher(result);
+
+                StringBuilder restoredSb = new StringBuilder();
+                while (reverseMatcher.find()) {
+                    int tempNumber = Integer.parseInt(reverseMatcher.group(1));
+                    int listIndex = tempNumber - 1;
+
+                    String originalValue = extractedValues.get(listIndex);
+                    reverseMatcher.appendReplacement(restoredSb, Matcher.quoteReplacement(originalValue));
+                }
+                reverseMatcher.appendTail(restoredSb);
+                result = restoredSb.toString();
+            }
         }
 
         return result;
@@ -452,7 +601,8 @@ public class ChatWikiLinksPlugin extends Plugin {
                 && chatMessageType != ChatMessageType.SPAM
                 && chatMessageType != ChatMessageType.OBJECT_EXAMINE
                 && chatMessageType != ChatMessageType.NPC_EXAMINE
-                && chatMessageType != ChatMessageType.ITEM_EXAMINE)
+                && chatMessageType != ChatMessageType.ITEM_EXAMINE
+                && chatMessageType != ChatMessageType.CONSOLE)
         {
             return;
         }
@@ -536,6 +686,7 @@ public class ChatWikiLinksPlugin extends Plugin {
                     int startY = child.getCanvasLocation().getY();
 
                     // Split the widget text by <br> or <br/> to handle multi-line messages correctly
+                    // This happens with container items that have a 'Check' option, like the herb sack
                     String[] lines = rawText.split("<br/?>");
 
                     for (int lineIndex = 0; lineIndex < lines.length; lineIndex++)
@@ -580,6 +731,10 @@ public class ChatWikiLinksPlugin extends Plugin {
                                                         .setOption(MENUOP_WIKI)
                                                         .setType(MenuAction.RUNELITE)
                                                         .onClick(e -> openWiki(canonicalName));
+
+                                                // Return after creating one menu item so we do not stack menus
+                                                // It will always prioritize the "larger" item/keyword (Bucket of sand)
+                                                // over smaller series of items/keywords (Bucket, sand)
                                                 return;
                                             }
                                         }

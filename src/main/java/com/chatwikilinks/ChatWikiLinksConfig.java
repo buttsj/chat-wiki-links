@@ -68,4 +68,20 @@ public interface ChatWikiLinksConfig extends Config
             position = 3
     )
     default Keybind hotkey() { return Keybind.NOT_SET; }
+
+    @ConfigItem(
+            keyName = "includeItems",
+            name = "Include Items",
+            description = "Include Items as keywords to display Wiki hyperlinks in chat.",
+            position = 4
+    )
+    default boolean includeItems() { return true; }
+
+    @ConfigItem(
+            keyName = "includeNPCs",
+            name = "Include NPCs",
+            description = "Include NPCs as keywords to display Wiki hyperlinks in chat.",
+            position = 5
+    )
+    default boolean includeNPC() { return true; }
 }
