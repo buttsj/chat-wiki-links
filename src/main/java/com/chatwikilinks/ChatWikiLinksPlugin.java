@@ -563,7 +563,7 @@ public class ChatWikiLinksPlugin extends Plugin {
             result = sb.toString();
 
             // Case-insensitive replacement that preserves original keyword casing and all surrounding tags
-            String regex = "(?i)\\b(" + Pattern.quote(kw) + ")\\b";
+            String regex = "(?i)\\b(" + Pattern.quote(kw) + ")\\b(?![''′]?[a-zA-Z])";
             result = result.replaceAll(regex, "<col=0000ff><u>$1</u></col>");
 
             // We masked some words if counter is greater than 1, let's now replace them back
@@ -708,14 +708,12 @@ public class ChatWikiLinksPlugin extends Plugin {
                             for (String lowerItem : sortedActiveKeywords)
                             {
                                 int idx = 0;
+
                                 while ((idx = lowerLine.indexOf(lowerItem, idx)) != -1)
                                 {
                                     int endIdx = idx + lowerItem.length();
 
-                                    boolean validStart = (idx == 0 || !Character.isLetterOrDigit(cleanLine.charAt(idx - 1)));
-                                    boolean validEnd = (endIdx == cleanLine.length() || !Character.isLetterOrDigit(cleanLine.charAt(endIdx)));
-
-                                    if (validStart && validEnd)
+                                    if (isWordBoundaryValid(cleanLine, idx, endIdx))
                                     {
                                         int itemStartX = startX + (idx * DEFAULT_CHAR_WIDTH);
                                         int itemEndX = startX + (endIdx * DEFAULT_CHAR_WIDTH);
@@ -739,6 +737,7 @@ public class ChatWikiLinksPlugin extends Plugin {
                                             }
                                         }
                                     }
+
                                     idx++;
                                 }
                             }
@@ -747,6 +746,39 @@ public class ChatWikiLinksPlugin extends Plugin {
                 }
             }
         }
+    }
+
+    private boolean isWordBoundaryValid(String text, int startIdx, int endIdx)
+    {
+        // Check preceding character
+        if (startIdx > 0)
+        {
+            char prev = text.charAt(startIdx - 1);
+            if (Character.isLetterOrDigit(prev) || prev == '\'' || prev == '’')
+            {
+                return false;
+            }
+        }
+
+        // Check trailing character
+        if (endIdx < text.length())
+        {
+            char next = text.charAt(endIdx);
+            if (Character.isLetterOrDigit(next))
+            {
+                return false;
+            }
+            // If followed by an apostrophe, verify a letter doesn't immediately follow (e.g. stops "don't")
+            if ((next == '\'' || next == '’') && endIdx + 1 < text.length())
+            {
+                if (Character.isLetterOrDigit(text.charAt(endIdx + 1)))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     private void openWiki(String keyword)
