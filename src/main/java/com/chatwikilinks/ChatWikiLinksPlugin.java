@@ -502,7 +502,9 @@ public class ChatWikiLinksPlugin extends Plugin {
         String workingMessage = inputMessage.replace('\u00A0', ' ');
 
         // Use clean text ONLY to locate word match positions/boundaries
-        String cleanText = Text.removeTags(workingMessage.replace("<br>", "\n").replace("<br/>", "\n"));
+        String strippedTags = workingMessage.replaceAll("@[a-zA-Z_]+@", "");
+        String cleanText = Text.removeTags(strippedTags.replace("<br>", "\n").replace("<br/>", "\n"));
+
         if (cleanText.isEmpty())
         {
             return inputMessage;
@@ -563,6 +565,7 @@ public class ChatWikiLinksPlugin extends Plugin {
             result = sb.toString();
 
             // Case-insensitive replacement that preserves original keyword casing and all surrounding tags
+            //String regex = "(?i)\\b(" + Pattern.quote(kw) + ")\\b";
             String regex = "(?i)\\b(" + Pattern.quote(kw) + ")\\b(?![''′]?[a-zA-Z])";
             result = result.replaceAll(regex, "<col=0000ff><u>$1</u></col>");
 
@@ -697,7 +700,10 @@ public class ChatWikiLinksPlugin extends Plugin {
                         if (mouseY >= lineStartY && mouseY <= lineEndY)
                         {
                             String lineRaw = lines[lineIndex];
-                            String cleanLine = Text.removeTags(lineRaw).replace('\u00A0', ' ');
+
+                            String strippedLine = lineRaw.replaceAll("@[a-zA-Z_]+@", "");
+                            String cleanLine = Text.removeTags(strippedLine).replace('\u00A0', ' ');
+
                             if (cleanLine.isEmpty())
                             {
                                 continue;
