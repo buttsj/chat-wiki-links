@@ -501,6 +501,22 @@ public class ChatWikiLinksPlugin extends Plugin {
         // Preserve original breaks and formatting
         String workingMessage = inputMessage.replace('\u00A0', ' ');
 
+        // First determine if there's a <color> already applied on this message
+        String lineColorTag1 = null;
+        Matcher initialColorMatcher = Pattern.compile("<col=[^>]+>", Pattern.CASE_INSENSITIVE).matcher(workingMessage);
+        if (initialColorMatcher.find())
+        {
+            lineColorTag1 = initialColorMatcher.group();
+        }
+
+        // Additionally, we need to check if there's a @color@ tag already applied on this message
+        String lineColorTag2 = null;
+        Matcher initialColorMatcher2 = Pattern.compile("^(@[a-zA-Z_]+@)", Pattern.CASE_INSENSITIVE).matcher(workingMessage);
+        if (initialColorMatcher2.find())
+        {
+            lineColorTag2 = initialColorMatcher2.group();
+        }
+
         // Use clean text ONLY to locate word match positions/boundaries
         String strippedTags = workingMessage.replaceAll("@[a-zA-Z_]+@", "");
         String cleanText = Text.removeTags(strippedTags.replace("<br>", "\n").replace("<br/>", "\n"));
@@ -561,13 +577,23 @@ public class ChatWikiLinksPlugin extends Plugin {
                 counter++;
             }
             matcher.appendTail(sb);
-
             result = sb.toString();
 
+            String replacement = "<col=0000ff><u>$1</u></col>";
+
+            // Reapply the color tags from earlier if one exists
+            if (lineColorTag1 != null)
+            {
+                replacement += lineColorTag1;
+            }
+            else if (lineColorTag2 != null)
+            {
+                replacement += lineColorTag2;
+            }
+
             // Case-insensitive replacement that preserves original keyword casing and all surrounding tags
-            //String regex = "(?i)\\b(" + Pattern.quote(kw) + ")\\b";
             String regex = "(?i)\\b(" + Pattern.quote(kw) + ")\\b(?![''′]?[a-zA-Z])";
-            result = result.replaceAll(regex, "<col=0000ff><u>$1</u></col>");
+            result = result.replaceAll(regex, replacement);
 
             // We masked some words if counter is greater than 1, let's now replace them back
             if (counter > 1)
@@ -593,7 +619,7 @@ public class ChatWikiLinksPlugin extends Plugin {
     @Subscribe
     public void onChatMessage(ChatMessage chatMessage)
     {
-        if (chatMessage == null || chatMessage.getMessage() == null)
+        if (chatMessage == null || chatMessage.getMessage() == null || chatMessage.getMessageNode() == null)
         {
             return;
         }
@@ -615,10 +641,9 @@ public class ChatWikiLinksPlugin extends Plugin {
             return;
         }
 
-        String rawMessage = chatMessage.getMessage().replace('\u00A0', ' ');
-        String processed = processMessageText(rawMessage);
+        String processed = processMessageText(chatMessage.getMessage());
 
-        if (!processed.equals(rawMessage) && chatMessage.getMessageNode() != null)
+        if (!processed.equals(chatMessage.getMessage()))
         {
             chatMessage.getMessageNode().setValue(processed);
             client.refreshChat();
